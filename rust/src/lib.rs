@@ -1,6 +1,6 @@
 #![allow(non_snake_case)]
 
-use rand::distributions::{Bernoulli, Distribution};
+use rand::distributions::{Distribution};
 use rand::distributions::uniform::Uniform;
 use rand_distr::Exp;
 use rand_distr::{Gamma};
@@ -45,6 +45,23 @@ pub fn cumulative_sum(v: &Vec<f64>) -> Vec<f64> {
         }
     }
     cs
+}
+
+fn draw_categorical(rng: &mut Xoshiro256PlusPlus, n: usize, cdf: &Vec<f64>) -> usize {
+    assert!(cdf.len() == n || cdf.len() == (n - 1));
+    
+    if n == 1 {
+        return 0;
+    }
+    else {
+        let u: f64 = rng.gen();
+        for i in 0..(n - 1) {
+            if u < cdf[i] {
+                return i;
+            }
+        }
+        return n - 1;
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -210,7 +227,7 @@ pub struct Counts {
 
 impl Counts {
     pub fn new(n_states: usize, n_ageclasses: usize) -> Self {
-        let mut counts = std::iter::repeat(
+        let counts = std::iter::repeat(
             std::iter::repeat(0).take(n_ageclasses).collect()
         ).take(n_states).collect();
         
@@ -271,7 +288,7 @@ pub struct CIOverN {
 
 impl CIOverN {
     fn new(C: Vec<Vec<f64>>, I: Vec<usize>, N: Vec<usize>) -> Self {
-        let mut obj = Self {
+        let obj = Self {
             C,
             I: I.iter().map(|x| *x as f64).collect(),
             N: N.iter().map(|x| *x as f64).collect(),
@@ -330,7 +347,6 @@ impl Individual {
 }
 
 pub struct Simulation {
-    n_states: usize,
     n_ageclasses: usize,
     states: Vec<State>,
     susceptible_state_id: usize,
@@ -396,7 +412,6 @@ impl Simulation {
         );
         
         let mut sim = Self {
-            n_states,
             n_ageclasses,
             states,
             susceptible_state_id,
@@ -441,10 +456,6 @@ impl Simulation {
                 ).unwrap();
             }
         }
-    }
-    
-    fn n_states(&self) -> usize {
-        self.states.len()
     }
     
     fn initialize_individuals(
@@ -495,7 +506,7 @@ impl Simulation {
             self.infectious_individuals[ageclass].add(id);
             self.C_I_over_N.increment(ageclass);
         }
-        self.insert_transition_event(state, ageclass, individual.id);
+        self.insert_transition_event(state, individual.id);
         
         if is_initial {
             self.counts.increment(state.id, ageclass, 1);
@@ -507,15 +518,9 @@ impl Simulation {
         id
     }
     
-    fn insert_transition_event(&mut self, state: &State, ageclass: usize, individual_id: usize) {
-        let t = self.draw_transition_time(state, ageclass);
+    fn insert_transition_event(&mut self, state: &State, individual_id: usize) {
+        let t = self.draw_transition_time(state);
         self.event_queue.insert(Event::new(t, individual_id));
-    }
-    
-    fn C(&self, t: f64) {
-        let t_start = t.floor();
-        let t_end = t.ceil();
-        let t_index = t_end as usize;
     }
     
     fn S(&self, ageclass: usize) -> f64 {
@@ -547,28 +552,7 @@ impl Simulation {
         Gamma::new(shape, scale).unwrap().sample(&mut self.rng)
     }
     
-    fn draw_bernoulli(&mut self, p: f64) -> bool {
-        Bernoulli::new(p).unwrap().sample(&mut self.rng)
-    }
-    
-    fn draw_categorical(&mut self, n: usize, cdf: &Vec<f64>) -> usize {
-        assert!(cdf.len() == n || cdf.len() == (n - 1));
-        
-        if n == 1 {
-            return 0;
-        }
-        else {
-            let u: f64 = self.rng.gen();
-            for i in 0..(n - 1) {
-                if u < cdf[i] {
-                    return i;
-                }
-            }
-            return n - 1;
-        }
-    }
-    
-    fn draw_transition_time(&mut self, state: &State, ageclass: usize) -> f64 {
+    fn draw_transition_time(&mut self, state: &State) -> f64 {
         match &state.detail {
             StateDetail::Infected(Some(infected_state)) => {
                 self.t + self.draw_gamma(
@@ -667,7 +651,7 @@ impl Simulation {
         // Draw ageclass of infecting individual proportional to C_I_over_N
         let cdf = self.C_I_over_N.row_cdf(ageclass);
 //        println!("cdf: {:?}", cdf);
-        let infecting_ageclass = self.draw_categorical(self.n_ageclasses, &cdf);
+        let infecting_ageclass = draw_categorical(&mut self.rng, self.n_ageclasses, &cdf);
 //        println!("infecting_ageclass = {}", infecting_ageclass);
         
         // Randomly choose an infectious individual from the infecting ageclass
@@ -720,7 +704,8 @@ impl Simulation {
         };
         
         let next_state_id = last_infected_state.next_state_ids[
-            self.draw_categorical(
+            draw_categorical(
+                &mut self.rng,
                 last_infected_state.next_state_ids.len(),
                 &last_infected_state.transition_cdfs[individual.ageclass]
             )
@@ -754,7 +739,7 @@ impl Simulation {
         else {
             // Otherwise insert an updated individual and queue the next transition
             self.individuals.insert(id, Individual::new(id, ageclass, next_state.id));
-            self.insert_transition_event(&next_state, ageclass, individual.id);
+            self.insert_transition_event(&next_state, individual.id);
         }
         
         if record_all_events {
@@ -782,5 +767,28 @@ impl Simulation {
             self.event_queue.remove(&event);
         }
         event_opt
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{weights_to_cdf, draw_categorical};
+    use rand_xoshiro::Xoshiro256PlusPlus;
+    use rand_xoshiro::rand_core::SeedableRng;
+    
+    #[test]
+    fn test_draw_categorical() {
+        let mut rng = Xoshiro256PlusPlus::seed_from_u64(0);
+        
+        let weights = vec![4.0, 3.0, 2.0, 1.0];
+        println!("weights: {:?}", weights);
+        let cdf = weights_to_cdf(&weights);
+        println!("cdf: {:?}", cdf);
+        
+        let mut counts: Vec<usize> = vec![0, 0, 0, 0];
+        for _i in 0..100000 {
+            counts[draw_categorical(&mut rng, 4, &cdf)] += 1;
+        }
+        println!("counts: {:?}", counts);
     }
 }

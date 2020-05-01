@@ -6,8 +6,7 @@ use std::time::Instant;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::Read;
-use std::path::{Path, PathBuf};
-use unindent::unindent;
+use std::path::{PathBuf};
 use std::collections::HashMap;
 use std::f64::INFINITY;
 
@@ -79,7 +78,7 @@ fn main() {
     
     let mut sim = {
         let mut db_transaction = db_connection.transaction().unwrap();
-        let mut sim = Simulation::new(
+        let sim = Simulation::new(
             config.n_ageclasses,
             states,
             susceptible_state_id,
@@ -151,11 +150,11 @@ fn parse_states(config: &Config) -> (Vec<State>, usize, usize, Counts) {
     for state_config in &config.infected_states {
         let id = name_id_map[&state_config.name];
         
-        let mut next_state_ids = state_config.next_states.iter().map(
+        let next_state_ids = state_config.next_states.iter().map(
             |name| name_id_map[name]
         ).collect();
         
-        let mut transition_probabilities = match &state_config.probabilities {
+        let transition_probabilities = match &state_config.probabilities {
             Some(probabilities) => {
                 probabilities.clone()
             },
@@ -164,7 +163,7 @@ fn parse_states(config: &Config) -> (Vec<State>, usize, usize, Counts) {
             }
         };
         
-        let mut transition_cdfs = transition_probabilities.iter().map(|tprobs| {
+        let transition_cdfs = transition_probabilities.iter().map(|tprobs| {
             cumulative_sum(tprobs)
         }).collect();
         
