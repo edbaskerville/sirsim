@@ -54,7 +54,8 @@ sirsim_ibm_write_config <- function(
   
   config_json <- toJSON(
     config, null = 'null', pretty = TRUE,
-    matrix = 'rowmajor'
+    matrix = 'rowmajor',
+    digits = NA
   )
   write(config_json, config_path)
 }
