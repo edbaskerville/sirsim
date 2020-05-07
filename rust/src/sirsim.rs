@@ -1,6 +1,6 @@
 #![allow(non_snake_case)]
 
-use sirsim::*;
+use sirtools::ibm::*;
 use std::time::Instant;
 
 use serde::{Deserialize, Serialize};

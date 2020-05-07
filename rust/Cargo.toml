@@ -1,5 +1,5 @@
 [package]
-name = "sirsim"
+name = "sirtools"
 version = "0.1.0"
 authors = ["Ed Baskerville <ed@edbaskerville.com>"]
 edition = "2018"
@@ -7,14 +7,20 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
-name = "sirsim"
-path = "src/lib.rs"
+name = "sirtools"
+path = "src/lib/mod.rs"
 
 [[bin]]
 name = "sirsim"
-path = "src/main.rs"
+path = "src/sirsim.rs"
+
+[[bin]]
+name = "sirstan"
+path = "src/sirstan.rs"
 
 [dependencies]
+stanbuilder = { path = "../../stanbuilder" }
+
 rusqlite = "0.20.0"
 rand = "0.7.3"
 rand_distr = "0.2.2"

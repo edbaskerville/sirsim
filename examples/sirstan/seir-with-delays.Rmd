@@ -1,0 +1,126 @@
+---
+title: "SEIR model with delayed observations"
+output: html_notebook
+---
+
+## Preamble
+
+```{r}
+source('../../sirstan.R')
+```
+
+
+## Compartmental structure and delayed observation variables
+
+```{r}
+model_structure <- list(
+  susceptible_state = 'S',
+  states = list(
+    S = list(
+      infectious = FALSE,
+      next_states = 'E'
+    ),
+    E = list(
+      infectious = FALSE,
+      next_states = 'I'
+    ),
+    I = list(
+      infectious = TRUE,
+      next_states = c('R', 'PreD')
+    ),
+    R = list(
+      infectious = FALSE
+    ),
+    PreD = list(
+      infectious = FALSE,
+      next_states = 'D'
+    ),
+    D = list(
+      infectious = FALSE
+    )
+  ),
+  observation_variables = list(
+    OC = list(
+      start_state = 'E',
+      end_state = 'I'
+    ),
+    OD = list(
+      start_state = 'PreD',
+      end_state = 'D'
+    )
+  )
+)
+```
+
+## Data and parameter config for a particular experiment
+
+```{r}
+config <- list(
+  population_size = 1e6,
+  transmission_covariates = list(
+    shelter = data.frame(
+      time = c(24, 26),
+      value = c(0, 1)
+    )
+  ),
+  process_delays = list(
+    E = list(
+      mean_duration = 3,
+      gamma_shape = 6
+    ),
+    I = list(
+      mean_duration = 5,
+      gamma_shape = 3
+    ),
+    PreD = list(
+      mean_duration = 7,
+      gamma_shape = 4
+    )
+  ),
+  observations = list(
+    OC = list(
+      delay = list(
+        mean_duration = 7,
+        gamma_shape = 7
+      ),
+      distribution = list(
+        type = 'BetaBinomial',
+        parameters = list(
+          probability = 'beta(0.5, 0.5)',
+          dispersion = 'normal(0, 20.0)'
+        )
+      ),
+      values = data.frame(
+        start_time = 0:99,
+        end_time = 1:100,
+        value = rpois(100, 1000.0)
+      )
+    ),
+    OD = list(
+      delay = list(
+        mean_duration = 'normal(0, 5.0)',
+        gamma_shape = 4
+      ),
+      distribution = list(
+        type = 'BetaBinomial',
+        parameters = list(
+          probability = 0.8,
+          dispersion = 'normal(0, 20.0)'
+        )
+      ),
+      values = data.frame(
+        start_time = 0:99,
+        end_time = 1:100,
+        value = rpois(100, 100.0)
+      )
+    )
+  )
+)
+```
+
+```{r}
+source('../../sirstan.R')
+result <- sirstan_generate('../..', model_structure, config)
+```
+
+
