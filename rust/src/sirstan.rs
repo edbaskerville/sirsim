@@ -5,6 +5,7 @@ use std::io::Read;
 use sirtools::spec::*;
 
 use serde::{Deserialize, Serialize};
+use sirtools::stan::StanModel;
 
 fn main() {
     let result = run();
@@ -48,6 +49,7 @@ struct InputData {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct OutputData {
+    stan_code: String,
 }
 
 fn run() -> Result<OutputData, Error> {
@@ -61,7 +63,15 @@ fn run() -> Result<OutputData, Error> {
     };
     let input_data: InputData = serde_json::from_str(&json_data)?;
     
-    Ok(OutputData { })
+    // Generate Stan code
+    let stan_code = StanModel::new(
+        input_data.structure, input_data.config
+    ).generate_stan_code();
+    eprintln!("{}", stan_code);
+    
+    Ok(OutputData {
+        stan_code
+    })
 }
 
 fn read_data_from_file(path_str: &str) -> Result<String, Error> {

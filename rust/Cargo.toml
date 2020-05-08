@@ -19,8 +19,6 @@ name = "sirstan"
 path = "src/sirstan.rs"
 
 [dependencies]
-stanbuilder = { path = "../../stanbuilder" }
-
 rusqlite = "0.20.0"
 rand = "0.7.3"
 rand_distr = "0.2.2"
