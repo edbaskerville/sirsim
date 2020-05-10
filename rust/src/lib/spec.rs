@@ -6,53 +6,53 @@ use std::collections::HashMap;
 /// to model observation delays.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ModelStructure {
-    susceptible_state: String,
-    states: Vec<State>,
-    observation_variables: Vec<ObservationVariable>
+    pub susceptible_state: String,
+    pub states: Vec<State>,
+    pub observation_variables: Vec<ObservationVariable>
 }
 
 /// A single state in the compartmental model.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct State {
-    name: String,
-    infectious: bool,
-    next_states: Option<Vec<String>>,
+    pub name: String,
+    pub infectious: bool,
+    pub next_states: Option<Vec<String>>,
 }
 
 /// An auxiliary variable that accumulates delayed observations of
 /// transitions between two states in the underlying infection process.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ObservationVariable {
-    name: String,
-    start_state: String,
-    end_state: String,
+    pub name: String,
+    pub start_state: String,
+    pub end_state: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ModelConfig {
-    population_size: f64,
-    transmission_covariates: Vec<Covariate>,
-    process_delays: HashMap<String, DelayConfig>,
-    observations: HashMap<String, ObservationConfig>,
+    pub population_size: f64,
+    pub transmission_covariates: Vec<Covariate>,
+    pub process_delays: HashMap<String, DelayConfig>,
+    pub observations: HashMap<String, ObservationConfig>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Covariate {
-    name: String,
-    values: Vec<(f64, f64)>, // (time, value)
+    pub name: String,
+    pub values: Vec<(f64, f64)>, // (time, value)
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DelayConfig {
-    mean_duration: Parameter,
-    gamma_shape: Parameter,
+    pub mean_duration: Parameter,
+    pub gamma_shape: Parameter,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ObservationConfig {
-    delay: DelayConfig,
-    distribution: ObservationDistribution,
-    values: Vec<(f64, f64, f64)>, // (start_time, end_time, value)
+    pub delay: DelayConfig,
+    pub distribution: ObservationDistribution,
+    pub values: Vec<(f64, f64, f64)>, // (start_time, end_time, value)
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -71,8 +71,8 @@ pub enum ParameterDistribution {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct StructuredParameterDistribution {
-    type_: String,
-    parameters: Vec<Parameter>,
+    pub type_: String,
+    pub parameters: Vec<Parameter>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -87,28 +87,28 @@ pub enum ObservationDistribution {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct NormalObservationParameters {
-    mean_fraction: Parameter,
-    standard_deviation: Parameter
+    pub mean_fraction: Parameter,
+    pub standard_deviation: Parameter
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PoissonObservationParameters {
-    mean_fraction: Parameter,
+    pub mean_fraction: Parameter,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct NegativeBinomialObservationParameters {
-    mean_fraction: Parameter,
-    dispersion: Parameter,
+    pub mean_fraction: Parameter,
+    pub dispersion: Parameter,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BinomialObservationParameters {
-    probability: Parameter,
+    pub probability: Parameter,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BetaBinomialObservationParameters {
-    probability: Parameter,
-    dispersion: Parameter,
+    pub probability: Parameter,
+    pub dispersion: Parameter,
 }

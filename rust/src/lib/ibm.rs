@@ -772,7 +772,7 @@ impl Simulation {
 
 #[cfg(test)]
 mod tests {
-    use crate::{weights_to_cdf, draw_categorical};
+    use crate::ibm::{weights_to_cdf, draw_categorical};
     use rand_xoshiro::Xoshiro256PlusPlus;
     use rand_xoshiro::rand_core::SeedableRng;
     

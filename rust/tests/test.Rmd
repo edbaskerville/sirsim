@@ -1,0 +1,82 @@
+---
+title: "Test simulating with test"
+output: html_notebook
+---
+
+```{r}
+library(rstan)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+```
+
+
+```{r}
+model <- stan_model('seir-with-delays.stan')
+```
+
+```{r}
+N <- 1e6
+
+model_input_data <- list(
+  E_gamma_shape = 4,
+  I_gamma_shape = 4,
+  PreD_gamma_shape = 4,
+  OC_gamma_shape = 4,
+  OD_gamma_shape = 4,
+  
+  E_mean_duration = 3,
+  I_mean_duration = 5,
+  PreD_mean_duration = 2,
+  OC_mean_duration = 10,
+  OD_mean_duration = 20,
+  
+  N = N,
+  b = 0.3,
+  p_I_R = 0.9,
+  p_I_PreD = 0.1,
+  
+  E_init = 0.01 * N,
+  I_init = 0,
+  R_init = 0,
+  PreD_init = 0,
+  D_init = 0,
+  
+  n_times = 101,
+  start_time = -20,
+  times = seq(0, 100)
+)
+```
+
+```{r}
+fit <- sampling(
+  model, model_input_data,
+  chains = 1, cores = 1, iter = 1,
+  algorithm = 'Fixed_param',
+)
+```
+
+```{r}
+params <- rstan::extract(fit)
+df <- data.frame(
+  time = model_input_data$times,
+  S = apply(params$S, 2, mean),
+  E = apply(params$E, 2, mean),
+  I = apply(params$I, 2, mean),
+  R = apply(params$R, 2, mean),
+  cOC = apply(params$OC, 2, mean),
+  cOD = apply(params$OD, 2, mean)
+) %>%
+  mutate(OC = cOC - lag(cOC, 1)) %>%
+  mutate(OD = cOD - lag(cOD, 1)) %>%
+  pivot_longer(cols = S:OD, names_to = 'variable', values_to = 'value')
+```
+
+```{r}
+ggplot(
+  df %>% filter(variable %in% c('E', 'I', 'OC', 'OD')),
+  aes(x = time, y = value, color = variable)
+) + geom_line()
+```
+
+
