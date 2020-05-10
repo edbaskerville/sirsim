@@ -13,6 +13,7 @@ use std::cmp::Ordering;
 use rand::Rng;
 use std::f64::INFINITY;
 
+use indoc::indoc;
 use unindent::unindent;
 
 use std::convert::{TryInto, TryFrom};
@@ -20,6 +21,15 @@ use std::convert::{TryInto, TryFrom};
 const INDIVIDUALS_SQL: &str = "INSERT INTO Individuals VALUES (?,?,?,?);";
 const INFECTIONS_SQL: &str = "INSERT INTO Infections VALUES (?,?,?);";
 const TRANSITIONS_SQL: &str = "INSERT INTO Transitions VALUES (?,?,?,?);";
+const RT_INSERT_SQL: &str = indoc!("
+    INSERT OR IGNORE INTO RtSufficientStatistics VALUES (?, 0, 0);
+");
+const RT_INCREMENT_PRIMARY: &str = indoc!("
+    UPDATE RtSufficientStatistics SET n_primary = n_primary + 1 WHERE time_discrete = ?;
+");
+const RT_INCREMENT_SECONDARY: &str = indoc!("
+    UPDATE RtSufficientStatistics SET n_secondary = n_secondary + 1 WHERE time_discrete = ?;
+");
 
 pub fn to_i64(x: usize) -> i64  {
     x.try_into().unwrap()
@@ -338,11 +348,16 @@ struct Individual {
     id: usize,
     ageclass: usize,
     state_id: usize,
+    t_infected: Option<f64>,
 }
 
 impl Individual {
-    fn new(id: usize, ageclass: usize, state_id: usize) -> Self {
-        Individual { id, ageclass: ageclass, state_id: state_id }
+    fn new(id: usize, ageclass: usize, state_id: usize, t_infected: Option<f64>) -> Self {
+        Individual { id, ageclass, state_id, t_infected }
+    }
+    
+    fn update_state(&self, state_id: usize) -> Self {
+        Self { state_id, ..*self }
     }
 }
 
@@ -389,10 +404,13 @@ impl Simulation {
     
         db_transaction.execute_batch(&unindent("
             CREATE TABLE Meta (key, value);
-            CREATE TABLE Individuals (t REAL, id INTEGER, ageclass INTEGER, initial_state TEXT);
-            CREATE TABLE Infections (t REAL, infected_id INTEGER, infectious_id INTEGER);
-            CREATE TABLE Transitions (t REAL, id INTEGER, start_state TEXT, end_state TEXT);
-            CREATE TABLE Counts (t REAL, state TEXT, ageclass INTEGER, count INTEGER);
+            CREATE TABLE Individuals (time REAL, id INTEGER, ageclass INTEGER, initial_state TEXT);
+            CREATE TABLE Infections (time REAL, infected_id INTEGER, infectious_id INTEGER);
+            CREATE TABLE Transitions (time REAL, id INTEGER, start_state TEXT, end_state TEXT);
+            CREATE TABLE Counts (time REAL, state TEXT, ageclass INTEGER, count INTEGER);
+            CREATE TABLE RtSufficientStatistics (
+                time_discrete INTEGER NOT NULL PRIMARY KEY, n_primary INTEGER, n_secondary INTEGER
+            );
         ")).unwrap();
     
         db_transaction.execute(
@@ -493,7 +511,10 @@ impl Simulation {
         let id = self.next_id;
         self.next_id += 1;
 
-        let individual = Individual::new(id, ageclass, state.id);
+        let individual = Individual::new(
+            id, ageclass, state.id,
+            if is_initial { None } else { Some(self.t) }
+        );
         self.individuals.insert(id, individual);
         
         if record_all_events {
@@ -584,6 +605,9 @@ impl Simulation {
         let mut insert_individual = db_transaction.prepare(INDIVIDUALS_SQL).unwrap();
         let mut insert_infection = db_transaction.prepare(INFECTIONS_SQL).unwrap();
         let mut insert_transition = db_transaction.prepare(TRANSITIONS_SQL).unwrap();
+        let mut insert_rt = db_transaction.prepare(RT_INSERT_SQL).unwrap();
+        let mut increment_rt_primary = db_transaction.prepare(RT_INCREMENT_PRIMARY).unwrap();
+        let mut increment_rt_secondary = db_transaction.prepare(RT_INCREMENT_SECONDARY).unwrap();
         
         let mut done = false;
         while self.t < t_until {
@@ -606,6 +630,9 @@ impl Simulation {
                         &mut insert_individual,
                         &mut insert_infection,
                         &mut insert_transition,
+                        &mut insert_rt,
+                        &mut increment_rt_primary,
+                        &mut increment_rt_secondary,
                         record_all_events,
                     );
                     found_event = true;
@@ -643,6 +670,9 @@ impl Simulation {
         insert_individual: &mut rusqlite::Statement,
         insert_infection: &mut rusqlite::Statement,
         insert_transition: &mut rusqlite::Statement,
+        insert_rt: &mut rusqlite::Statement,
+        increment_rt_primary: &mut rusqlite::Statement,
+        increment_rt_secondary: &mut rusqlite::Statement,
         record_all_events: bool,
     ) {
 //        println!("do_contact_event()");
@@ -656,6 +686,7 @@ impl Simulation {
         
         // Randomly choose an infectious individual from the infecting ageclass
         let infectious_id = self.infectious_individuals[infecting_ageclass].sample(&mut self.rng);
+        let infectious_individual = self.individuals[&infectious_id];
         
         // Create a new infected individual
         let state = self.states[self.initial_infected_state_id].clone();
@@ -664,6 +695,8 @@ impl Simulation {
             insert_individual,
             record_all_events
         );
+        
+        // Insert individual events
         if record_all_events {
             insert_infection.execute(
                 rusqlite::params![self.t, i64::try_from(infected_id).unwrap(), i64::try_from(infectious_id).unwrap()]
@@ -676,6 +709,19 @@ impl Simulation {
                 ]
             ).unwrap();
         };
+        
+        // Update count of people infected during this discrete timestep
+        // (denominator of Rt)
+        let t_discrete_present = self.t.ceil() as i64;
+        insert_rt.execute(rusqlite::params![t_discrete_present]).unwrap();
+        increment_rt_primary.execute(rusqlite::params![t_discrete_present]).unwrap();
+        
+        // Update count of number of infections caused by people infected at a previous timestep
+        // (numerator of Rt)
+        if let Some(t_past) = infectious_individual.t_infected {
+            let t_past_discrete = t_past.ceil() as i64;
+            increment_rt_secondary.execute(rusqlite::params![t_past_discrete]).unwrap();
+        }
         
         // Update contact times
         self.update_contact()
@@ -738,7 +784,7 @@ impl Simulation {
         }
         else {
             // Otherwise insert an updated individual and queue the next transition
-            self.individuals.insert(id, Individual::new(id, ageclass, next_state.id));
+            self.individuals.insert(id, individual.update_state(next_state.id));
             self.insert_transition_event(&next_state, individual.id);
         }
         
