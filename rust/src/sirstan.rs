@@ -6,7 +6,8 @@ use sirtools::spec::*;
 
 fn main() {
     let result = sirtools::stan::run();
-    eprintln!("{:?}", result);
     
-    // Write result to stdout
+    let output_json = serde_json::to_string_pretty(&result).unwrap();
+    
+    println!("{}", output_json);
 }

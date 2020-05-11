@@ -20,7 +20,7 @@ sirstan_generate <- function(
   )
   
   list(
-    sirstan_output = output,
+    sirstan_output = fromJSON(output),
     sirstan_input_data_jsonobj = input_data_jsonobj,
     sirstan_input_data_json = input_data_json
   )
@@ -123,25 +123,12 @@ sirstan_prepare_jsonobj_ <- function(model_structure, config) {
   
   config_ <- with(config, {
     list(
-      population_size = unbox(population_size),
-      transmission_covariates = {
-        tc_names <- names(transmission_covariates)
-        lapply(1:length(transmission_covariates), function(i) {
-          tc <- transmission_covariates[[i]]
-          list(
-            name = unbox(tc_names[i]),
-            values = lapply(1:nrow(tc), function(j) {
-              c(tc$time[j], tc$value[j])
-            })
-          )
-        })
-      },
-      process_delays = lapply(process_delays, format_delay),
-      observations = lapply(observations, function(obs) {
-        with(obs, list(
-          delay = format_delay(delay),
-          distribution = format_observation_distribution(distribution),
-          values = format_observation_values(values)
+      infer_process_delays = lapply(infer_process_delays, unbox),
+      infer_observation_delays = lapply(infer_observation_delays, unbox),
+      observation_distributions = lapply(observation_distributions, function(od) {
+        with(od, list(
+          distribution = unbox(distribution),
+          infer = lapply(infer, unbox)
         ))
       })
     )

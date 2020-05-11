@@ -1,5 +1,5 @@
 ---
-title: "Test simulating with test"
+title: "sirstan example"
 output: html_notebook
 ---
 
@@ -10,11 +10,103 @@ library(tidyr)
 library(ggplot2)
 ```
 
+```{r}
+source('../../sirstan.R')
+```
+
+# Model structure
 
 ```{r}
-# model <- stan_model('seir-with-delays-generated.stan')
-model <- stan_model('seir-with-delays.stan')
+model_structure <- list(
+  susceptible_state = 'S',
+  states = list(
+    S = list(
+      infectious = FALSE,
+      next_states = 'E'
+    ),
+    E = list(
+      infectious = FALSE,
+      next_states = 'I'
+    ),
+    I = list(
+      infectious = TRUE,
+      next_states = c('R', 'PreD')
+    ),
+    R = list(
+      infectious = FALSE
+    ),
+    PreD = list(
+      infectious = FALSE,
+      next_states = 'D'
+    ),
+    D = list(
+      infectious = FALSE
+    )
+  ),
+  observation_variables = list(
+    OC = list(
+      start_state = 'E',
+      end_state = 'I'
+    ),
+    OD = list(
+      start_state = 'PreD',
+      end_state = 'D'
+    )
+  )
+)
 ```
+
+# Inference configuration
+
+```{r}
+inference_config <- list(
+  infer_process_delays = list(
+    E = FALSE,
+    I = TRUE,
+    PreD = FALSE
+  ),
+  infer_observation_delays = list(
+    OC = FALSE,
+    OD = TRUE
+  ),
+  observation_distributions = list(
+    OC = list(
+      distribution = 'BetaBinomial',
+      infer = c(
+        probability = TRUE,
+        dispersion = TRUE
+      )
+    ),
+    OD = list(
+      distribution = 'BetaBinomial',
+      infer = c(
+        probability = FALSE,
+        dispersion = TRUE
+      )
+    )
+  )
+)
+```
+
+# Generate Stan model code
+
+```{r}
+result <- sirstan_generate('../..',
+  model_structure, inference_config
+)
+```
+
+```{r}
+cat(result$sirstan_output$Ok$stan_code)
+```
+
+
+```{r}
+model <- stan_model(model_name = 'seir_with_delays', model_code = result$sirstan_output$Ok$stan_code)
+# model <- stan_model('seir-with-delays.stan')
+```
+
+# Simulate using the Stan code
 
 ```{r}
 N <- 1e6

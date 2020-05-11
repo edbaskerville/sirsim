@@ -1079,7 +1079,7 @@ pub fn run() -> Result<OutputData, Error> {
     let stan_code = StanModel::new(
         input_data.structure, input_data.config
     ).generate_stan_code();
-    eprintln!("{}", stan_code);
+//    eprintln!("{}", stan_code);
     
     Ok(OutputData {
         stan_code
