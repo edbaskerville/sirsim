@@ -51,7 +51,7 @@ impl StanModel {
         let declaration = indoc!("
             real[] ode_ddt(
               real t, real[] state,
-              real[] theta,
+              real[] params,
               real[] x_r, int[] x_i
             )"
         );
@@ -59,11 +59,12 @@ impl StanModel {
         let body_sections = vec![
             "int n_substates;".into(),
             self.gamma_shape_declarations(),
-            self.fixed_parameter_declarations(),
-            self.mean_duration_declarations(),
-            self.probability_declarations(),
-            self.extract_x_i(),
-            self.extract_x_r(),
+            self.standard_declarations(true, true, false),
+            self.mean_duration_declarations(true, true, false),
+            self.probability_declarations(false),
+            self.extract_or_assign("x_i", self.x_i_entries(), true),
+            self.extract_or_assign("x_r", self.x_r_entries(), true),
+            self.extract_or_assign("params", self.params_entries(), true),
             self.ddt_computation(),
         ];
         
@@ -95,37 +96,74 @@ impl StanModel {
     }
     
     // Variables with delays
-    fn variables_with_delays(&self) -> Vec<String> {
-        let mut vars = self.gamma_distributed_states();
-        vars.append(&mut self.observation_variables());
-        vars
+    fn variables_with_delays(&self, data: bool, params: bool) -> Vec<String> {
+        let mut v = Vec::new();
+        
+        for var in self.gamma_distributed_states() {
+            if self.config.infer_process_delays[&var] {
+                if params {
+                    v.push(var);
+                }
+            }
+            else {
+                if data {
+                    v.push(var);
+                }
+            }
+        }
+    
+        for var in self.observation_variables() {
+            if self.config.infer_observation_delays[&var] {
+                if params {
+                    v.push(var);
+                }
+            }
+            else {
+                if data {
+                    v.push(var);
+                }
+            }
+        }
+        
+        v
     }
     
     // Gamma shape for variables with delays
     fn gamma_shape_declarations(&self) -> String {
-        self.variables_with_delays().iter().map(|var| {
+        self.variables_with_delays(true, true).iter().map(|var| {
             format!("int {}_gamma_shape;", var)
         }).collect::<Vec<_>>().join("\n")
     }
     
-    fn fixed_parameters(&self) -> Vec<String> {
-        vec![
-            "N".into(),
-            "b".into(),
-        ]
-    }
-    
     // Fixed parameter declarations
-    fn fixed_parameter_declarations(&self) -> String {
-        self.fixed_parameters().iter().map(|name| {
-            format!("real {};", name)
+    fn standard_declarations(&self, data: bool, params: bool, include_bounds: bool) -> String {
+        let mut v: Vec<String> = Vec::new();
+        
+        if data {
+            v.push("N".into());
+        }
+        
+        if params {
+            v.push("b".into());
+        }
+        
+        v.iter().map(|var| {
+            format!(
+                "real{} {};",
+                if include_bounds { "<lower=0>" } else { "" },
+                var
+            )
         }).collect::<Vec<_>>().join("\n")
     }
     
     // Durations for variables with delays
-    fn mean_duration_declarations(&self) -> String {
-        self.variables_with_delays().iter().map(|var| {
-            format!("real {}_mean_duration;", var)
+    fn mean_duration_declarations(&self, data: bool, params: bool, include_bounds: bool) -> String {
+        self.variables_with_delays(data, params).iter().map(|var| {
+            format!(
+                "real{} {}_mean_duration;",
+                if include_bounds { "<lower=0>" } else { "" },
+                var
+            )
         }).collect::<Vec<_>>().join("\n")
     }
     
@@ -155,26 +193,31 @@ impl StanModel {
         transitions
     }
     
-    fn probability_declarations(&self) -> String {
+    fn probability_declarations(&self, include_bounds: bool) -> String {
         self.transitions_with_probabilities().iter().map(|(from, to)| {
-            format!("real p_{}_{};", from, to)
+            format!(
+                "real{} p_{}_{};",
+                if include_bounds { "<lower=0, upper=1>" } else { "" },
+                from, to
+            )
         }).collect::<Vec<_>>().join("\n")
     }
     
-    fn extract_x_i(&self) -> String {
+    fn extract_or_assign(&self, vec_name: &str, vars: Vec<String>, extract: bool) -> String {
+        let vec_access = format!("{}[index]", vec_name);
         let increment: String = "index += 1;".into();
+        
         let mut sections = Vec::new();
         
         sections.push("int index = 1;".into());
         
-        sections.push(vec![
-            "n_substates = x_i[index];".into(),
-            increment.clone()
-        ].join("\n"));
-        
-        for var in self.variables_with_delays() {
+        for var in vars {
             sections.push(vec![
-                format!("{}_gamma_shape = x_i[index];", var),
+                format!(
+                    "{} = {};",
+                    if extract { &var } else { &vec_access },
+                    if extract { &vec_access } else { &var },
+                ),
                 increment.clone(),
             ].join("\n"));
         }
@@ -182,34 +225,77 @@ impl StanModel {
         format_block(sections.join("\n\n"))
     }
     
-    fn extract_x_r(&self) -> String {
-        let increment: String = "index += 1;".into();
-        let mut sections = Vec::new();
-    
-        sections.push("int index = 1;".into());
+    fn x_i_entries(&self) -> Vec<String> {
+        let mut v = Vec::new();
         
-        for name in self.fixed_parameters() {
-            sections.push(vec![
-                format!("{} = x_r[index];", name),
-                increment.clone(),
-            ].join("\n"));
+        v.push("n_substates".into());
+        
+        for var in self.variables_with_delays(true, true) {
+            v.push(format!("{}_gamma_shape", var));
         }
         
-        for var in self.variables_with_delays() {
-            sections.push(vec![
-                format!("{}_mean_duration = x_r[index];", var),
-                increment.clone(),
-            ].join("\n"));
+        v
+    }
+    
+    fn x_r_entries(&self) -> Vec<String> {
+        let mut v = Vec::new();
+        
+        v.push("N".into());
+        
+        for var in self.fixed_delay_vars() {
+            v.push(format!("{}_mean_duration", var));
         }
     
         for (from, to) in self.transitions_with_probabilities() {
-            sections.push(vec![
-                format!("p_{}_{} = x_r[index];", from, to),
-                increment.clone(),
-            ].join("\n"));
+            v.push(format!("p_{}_{}", from, to));
         }
+        
+        v
+    }
     
-        format_block(sections.join("\n\n"))
+    fn inferred_delay_vars(&self) -> Vec<String> {
+        let mut v = Vec::new();
+        
+        for var in self.gamma_distributed_states() {
+            if self.config.infer_process_delays[&var] {
+                v.push(var);
+            }
+        }
+        for var in self.observation_variables() {
+            if self.config.infer_observation_delays[&var] {
+                v.push(var);
+            }
+        }
+        
+        v
+    }
+    
+    fn fixed_delay_vars(&self) -> Vec<String> {
+        let mut v = Vec::new();
+        
+        for var in self.gamma_distributed_states() {
+            if !self.config.infer_process_delays[&var] {
+                v.push(var);
+            }
+        }
+        for var in self.observation_variables() {
+            if !self.config.infer_observation_delays[&var] {
+                v.push(var);
+            }
+        }
+        
+        v
+    }
+    
+    fn params_entries(&self) -> Vec<String> {
+        let mut v = Vec::new();
+        
+        v.push("b".into());
+        for var in self.inferred_delay_vars() {
+                v.push(format!("{}_mean_duration", var));
+        }
+        
+        v
     }
     
     fn ddt_computation(&self) -> String {
@@ -612,58 +698,12 @@ impl StanModel {
         format_block(sections.join("\n\n"))
     }
     
-    // (Variable name, start_index, # subcompartments) for each state variable
-    // X[i] is the ith stage of the gamma-distributed chain for X.
-    fn statevar_indexes(&self) -> Vec<(String, usize, usize)> {
-        self.statevar_lengths().iter().scan(1, |next_start_index, (varname, size)| {
-            let start_index = *next_start_index;
-            *next_start_index += size;
-            Some((varname.clone(), start_index, *size))
-        }).collect()
-    }
-    
-    // Get lengths of each state variable
-    fn statevar_lengths(&self) -> Vec<(String, usize)> {
-        let susceptible_state = &self.structure.susceptible_state;
-        let delay_config = &self.config.process_delays;
-        
-        self.structure.states.iter().map(|state| {
-            let name = state.name.clone();
-            
-            if name.eq(susceptible_state) {
-                (name, 1)
-            }
-            else {
-                match &state.next_states {
-                    Some(next_states) => {
-                        if !delay_config.contains_key(&name) {
-                            eprintln!("No delay config for state {}", name);
-                        }
-                        
-                        if let Parameter::Fixed(gamma_shape) = delay_config[&state.name].gamma_shape {
-                            if gamma_shape == gamma_shape.round() && gamma_shape > 0.0 {
-                                (name, gamma_shape as usize)
-                            }
-                            else {
-                                panic!()
-                            }
-                        }
-                        else {
-                            panic!()
-                        }
-                    },
-                    None => (name, 1)
-                }
-            }
-        }).collect()
-    }
-    
     pub fn data_code(&self) -> String {
         vec![
             self.gamma_shape_declarations(),
-            self.fixed_parameter_declarations(),
-            self.mean_duration_declarations(),
-            self.probability_declarations(),
+            self.standard_declarations(true, false, true),
+            self.mean_duration_declarations(true, false, true),
+            self.probability_declarations(true),
             self.ic_declarations(),
             self.time_declarations(),
         ].join("\n\n")
@@ -674,7 +714,7 @@ impl StanModel {
         
         for state in &self.structure.states {
             if state.name != self.susceptible_state() {
-                lines.push(format!("real {}_init;", state.name));
+                lines.push(format!("real<lower=0> {}_init;", state.name));
             }
         }
         
@@ -692,22 +732,23 @@ impl StanModel {
     fn transformed_data_code(&self) -> String {
         vec![
             self.transformed_data_declarations(),
-            self.assign_x_i(),
-            self.assign_x_r(),
+            self.extract_or_assign("x_i", self.x_i_entries(), false),
+            self.extract_or_assign("x_r", self.x_r_entries(), false),
         ].join("\n\n")
     }
     
     fn transformed_data_declarations(&self) -> String {
         vec![
             format!(
-                "int n_gamma_vars = {};",
+                "int n_delay_vars = {};",
                 self.gamma_distributed_states().len() + self.observation_variables().len()
             ),
             format!(
-                "int n_fixed_params = {};", self.fixed_parameters().len()
+                "int n_inferred_delays = {};", self.inferred_delay_vars().len()
             ),
+            "int n_fixed_delays = n_delay_vars - n_inferred_delays;".into(),
             format!(
-                "int n_probs = {};", self.transitions_with_probabilities().len()
+                "int n_transition_probabilities = {};", self.transitions_with_probabilities().len()
             ),
             format!(
                 "int n_substates = {};",
@@ -730,8 +771,8 @@ impl StanModel {
                     pieces.join(" + ")
                 }
             ),
-            "int x_i[1 + n_gamma_vars];".into(),
-            "real x_r[n_fixed_params + n_gamma_vars + n_probs];".into(),
+            "int x_i[1 + n_delay_vars];".into(),
+            "real x_r[1 + n_fixed_delays + n_transition_probabilities];".into(),
         ].join("\n")
     }
     
@@ -746,7 +787,7 @@ impl StanModel {
             increment.clone()
         ].join("\n"));
     
-        for var in self.variables_with_delays() {
+        for var in self.variables_with_delays(true, true) {
             sections.push(vec![
                 format!("x_i[index] = {}_gamma_shape;", var),
                 increment.clone(),
@@ -756,38 +797,11 @@ impl StanModel {
         format_block(sections.join("\n\n"))
     }
     
-    fn assign_x_r(&self) -> String {
-        let increment: String = "index += 1;".into();
-        let mut sections = Vec::new();
-    
-        sections.push("int index = 1;".into());
-    
-        for name in self.fixed_parameters() {
-            sections.push(vec![
-                format!("x_r[index] = {};", name),
-                increment.clone(),
-            ].join("\n"));
-        }
-    
-        for var in self.variables_with_delays() {
-            sections.push(vec![
-                format!("x_r[index] = {}_mean_duration;", var),
-                increment.clone(),
-            ].join("\n"));
-        }
-    
-        for (from, to) in self.transitions_with_probabilities() {
-            sections.push(vec![
-                format!("x_r[index] = p_{}_{};", from, to),
-                increment.clone(),
-            ].join("\n"));
-        }
-    
-        format_block(sections.join("\n\n"))
-    }
-    
     fn parameters_code(&self) -> String {
-        "".into()
+        vec![
+            self.standard_declarations(false, true, true),
+            self.mean_duration_declarations(false, true, true),
+        ].join("\n\n")
     }
     
     fn transformed_parameters_code(&self) -> String {
@@ -795,7 +809,16 @@ impl StanModel {
     }
     
     fn model_code(&self) -> String {
-        "".into()
+        vec![
+            "b ~ normal(0, 2);".into(),
+            self.mean_duration_sampling_statements().join("\n"),
+        ].join("\n\n")
+    }
+    
+    fn mean_duration_sampling_statements(&self) -> Vec<String> {
+        self.inferred_delay_vars().iter().map(|var| {
+            format!("{}_mean_duration ~ normal(0, 20);", var)
+        }).collect()
     }
     
     fn generated_quantities_code(&self) -> String {
@@ -813,7 +836,7 @@ impl StanModel {
         }
         
         for obs_var in self.observation_variables() {
-            lines.push(format!("vector[n_times] {};", obs_var));
+            lines.push(format!("vector[n_times] c_{}_hidden;", obs_var));
         }
         
         lines.join("\n")
@@ -823,9 +846,10 @@ impl StanModel {
         format_block(vec![
             vec![
                 String::from("real initial_state[n_substates];"),
-                "real params[0];".into(),
+                "real params[1 + n_inferred_delays];".into(),
                 "real ode_out[n_times, n_substates];".into(),
             ].join("\n"),
+            self.extract_or_assign("params", self.params_entries(), false),
             self.gq_ics(),
             vec![
                 String::from("ode_out = integrate_ode_rk45("),
@@ -895,7 +919,7 @@ impl StanModel {
         
         for obs_var in self.observation_variables() {
             sections.push(vec![
-                format!("{0}[i] = ode_out[i, index + {0}_gamma_shape];", obs_var),
+                format!("c_{0}_hidden[i] = ode_out[i, index + {0}_gamma_shape];", obs_var),
                 format!("index += {}_gamma_shape + 1;", obs_var),
             ].join("\n"))
         }

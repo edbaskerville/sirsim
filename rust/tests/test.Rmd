@@ -12,6 +12,7 @@ library(ggplot2)
 
 
 ```{r}
+# model <- stan_model('seir-with-delays-generated.stan')
 model <- stan_model('seir-with-delays.stan')
 ```
 
@@ -48,10 +49,14 @@ model_input_data <- list(
 )
 ```
 
+## Simulate
+
+
 ```{r}
 fit <- sampling(
   model, model_input_data,
   chains = 1, cores = 1, iter = 1,
+  init = list(model_input_data),
   algorithm = 'Fixed_param',
 )
 ```
@@ -60,15 +65,15 @@ fit <- sampling(
 params <- rstan::extract(fit)
 df <- data.frame(
   time = model_input_data$times,
-  S = apply(params$S, 2, mean),
-  E = apply(params$E, 2, mean),
-  I = apply(params$I, 2, mean),
-  R = apply(params$R, 2, mean),
-  cOC = apply(params$OC, 2, mean),
-  cOD = apply(params$OD, 2, mean)
+  S = apply(params$S, 2, median),
+  E = apply(params$E, 2, median),
+  I = apply(params$I, 2, median),
+  R = apply(params$R, 2, median),
+  c_OC_hidden = apply(params$c_OC_hidden, 2, mean),
+  c_OD_hidden = apply(params$c_OD_hidden, 2, mean)
 ) %>%
-  mutate(OC = cOC - lag(cOC, 1)) %>%
-  mutate(OD = cOD - lag(cOD, 1)) %>%
+  mutate(OC = c_OC_hidden - lag(c_OC_hidden, 1)) %>%
+  mutate(OD = c_OD_hidden - lag(c_OD_hidden, 1)) %>%
   pivot_longer(cols = S:OD, names_to = 'variable', values_to = 'value')
 ```
 
@@ -79,4 +84,36 @@ ggplot(
 ) + geom_line()
 ```
 
+## Fit
+
+```{r}
+actual_fit <- sampling(
+  model, model_input_data,
+  chains = 1, cores = 1, iter = 2000,
+  algorithm = 'NUTS',
+)
+```
+
+```{r}
+actual_params <- rstan::extract(actual_fit)
+actual_df <- with(actual_params, data.frame(
+  time = model_input_data$times,
+  S = apply(S, 2, median),
+  E = apply(E, 2, median),
+  I = apply(I, 2, median),
+  R = apply(R, 2, median),
+  c_OC_hidden = apply(c_OC_hidden, 2, median),
+  c_OD_hidden = apply(c_OD_hidden, 2, median)
+)) %>%
+  mutate(OC = c_OC_hidden - lag(c_OC_hidden, 1)) %>%
+  mutate(OD = c_OD_hidden - lag(c_OD_hidden, 1)) %>%
+  pivot_longer(cols = S:OD, names_to = 'variable', values_to = 'value')
+```
+
+```{r}
+ggplot(
+  actual_df %>% filter(variable %in% c('E', 'I', 'OC', 'OD')),
+  aes(x = time, y = value, color = variable)
+) + geom_line()
+```
 

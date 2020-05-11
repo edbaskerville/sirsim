@@ -30,53 +30,13 @@ pub struct ObservationVariable {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ModelConfig {
-    pub population_size: f64,
-    pub transmission_covariates: Vec<Covariate>,
-    pub process_delays: HashMap<String, DelayConfig>,
-    pub observations: HashMap<String, ObservationConfig>,
+    pub infer_process_delays: HashMap<String, bool>,
+    pub infer_observation_delays: HashMap<String, bool>,
+    pub observation_distributions: HashMap<String, ObservationDistribution>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Covariate {
-    pub name: String,
-    pub values: Vec<(f64, f64)>, // (time, value)
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct DelayConfig {
-    pub mean_duration: Parameter,
-    pub gamma_shape: Parameter,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ObservationConfig {
-    pub delay: DelayConfig,
-    pub distribution: ObservationDistribution,
-    pub values: Vec<(f64, f64, f64)>, // (start_time, end_time, value)
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(tag = "tag", content = "content")]
-pub enum Parameter {
-    Fixed(f64),
-    Inferred(ParameterDistribution),
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(tag = "tag", content = "content")]
-pub enum ParameterDistribution {
-    RawCode(String),
-    Structured(StructuredParameterDistribution),
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct StructuredParameterDistribution {
-    pub type_: String,
-    pub parameters: Vec<Parameter>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(tag = "tag", content = "content")]
+#[serde(tag = "distribution", content = "infer")]
 pub enum ObservationDistribution {
     Normal(NormalObservationParameters),
     Poisson(PoissonObservationParameters),
@@ -87,28 +47,28 @@ pub enum ObservationDistribution {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct NormalObservationParameters {
-    pub mean_fraction: Parameter,
-    pub standard_deviation: Parameter
+    pub mean_fraction: bool,
+    pub standard_deviation: bool
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PoissonObservationParameters {
-    pub mean_fraction: Parameter,
+    pub mean_fraction: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct NegativeBinomialObservationParameters {
-    pub mean_fraction: Parameter,
-    pub dispersion: Parameter,
+    pub mean_fraction: bool,
+    pub dispersion: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BinomialObservationParameters {
-    pub probability: Parameter,
+    pub probability: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BetaBinomialObservationParameters {
-    pub probability: Parameter,
-    pub dispersion: Parameter,
+    pub probability: bool,
+    pub dispersion: bool,
 }

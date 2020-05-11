@@ -1,7 +1,7 @@
 functions {
   real[] ode_ddt(
     real t, real[] state,
-    real[] theta,
+    real[] params,
     real[] x_r, int[] x_i
   ) {
     int n_substates;
@@ -52,13 +52,7 @@ functions {
       N = x_r[index];
       index += 1;
       
-      b = x_r[index];
-      index += 1;
-      
       E_mean_duration = x_r[index];
-      index += 1;
-      
-      I_mean_duration = x_r[index];
       index += 1;
       
       PreD_mean_duration = x_r[index];
@@ -67,13 +61,23 @@ functions {
       OC_mean_duration = x_r[index];
       index += 1;
       
-      OD_mean_duration = x_r[index];
-      index += 1;
-      
       p_I_R = x_r[index];
       index += 1;
       
       p_I_PreD = x_r[index];
+      index += 1;
+    }
+    
+    {
+      int index = 1;
+      
+      b = params[index];
+      index += 1;
+      
+      I_mean_duration = params[index];
+      index += 1;
+      
+      OD_mean_duration = params[index];
       index += 1;
     }
     
@@ -280,23 +284,20 @@ data {
   int OC_gamma_shape;
   int OD_gamma_shape;
   
-  real N;
-  real b;
+  real<lower=0> N;
   
-  real E_mean_duration;
-  real I_mean_duration;
-  real PreD_mean_duration;
-  real OC_mean_duration;
-  real OD_mean_duration;
+  real<lower=0> E_mean_duration;
+  real<lower=0> PreD_mean_duration;
+  real<lower=0> OC_mean_duration;
   
-  real p_I_R;
-  real p_I_PreD;
+  real<lower=0, upper=1> p_I_R;
+  real<lower=0, upper=1> p_I_PreD;
   
-  real E_init;
-  real I_init;
-  real R_init;
-  real PreD_init;
-  real D_init;
+  real<lower=0> E_init;
+  real<lower=0> I_init;
+  real<lower=0> R_init;
+  real<lower=0> PreD_init;
+  real<lower=0> D_init;
   
   int n_times;
   real start_time;
@@ -304,12 +305,13 @@ data {
 }
 
 transformed data {
-  int n_gamma_vars = 5;
-  int n_fixed_params = 2;
-  int n_probs = 2;
+  int n_delay_vars = 5;
+  int n_inferred_delays = 2;
+  int n_fixed_delays = n_delay_vars - n_inferred_delays;
+  int n_transition_probabilities = 2;
   int n_substates = E_gamma_shape + I_gamma_shape + 1 + PreD_gamma_shape + 1 + OC_gamma_shape + 1 + OD_gamma_shape + 1;
-  int x_i[1 + n_gamma_vars];
-  real x_r[n_fixed_params + n_gamma_vars + n_probs];
+  int x_i[1 + n_delay_vars];
+  real x_r[1 + n_fixed_delays + n_transition_probabilities];
   
   {
     int index = 1;
@@ -339,22 +341,13 @@ transformed data {
     x_r[index] = N;
     index += 1;
     
-    x_r[index] = b;
-    index += 1;
-    
     x_r[index] = E_mean_duration;
-    index += 1;
-    
-    x_r[index] = I_mean_duration;
     index += 1;
     
     x_r[index] = PreD_mean_duration;
     index += 1;
     
     x_r[index] = OC_mean_duration;
-    index += 1;
-    
-    x_r[index] = OD_mean_duration;
     index += 1;
     
     x_r[index] = p_I_R;
@@ -366,7 +359,10 @@ transformed data {
 }
 
 parameters {
-
+  real<lower=0> b;
+  
+  real<lower=0> I_mean_duration;
+  real<lower=0> OD_mean_duration;
 }
 
 transformed parameters {
@@ -374,7 +370,10 @@ transformed parameters {
 }
 
 model {
-
+  b ~ normal(0, 2);
+  
+  I_mean_duration ~ normal(0, 20);
+  OD_mean_duration ~ normal(0, 20);
 }
 
 generated quantities {
@@ -384,13 +383,26 @@ generated quantities {
   vector[n_times] R;
   vector[n_times] PreD;
   vector[n_times] D;
-  vector[n_times] OC;
-  vector[n_times] OD;
+  vector[n_times] c_OC_hidden;
+  vector[n_times] c_OD_hidden;
   
   {
     real initial_state[n_substates];
-    real params[0];
+    real params[1 + n_inferred_delays];
     real ode_out[n_times, n_substates];
+    
+    {
+      int index = 1;
+      
+      params[index] = b;
+      index += 1;
+      
+      params[index] = I_mean_duration;
+      index += 1;
+      
+      params[index] = OD_mean_duration;
+      index += 1;
+    }
     
     {
       int index = 1;
@@ -449,10 +461,10 @@ generated quantities {
       D[i] = ode_out[i, index];
       index += 1;
       
-      OC[i] = ode_out[i, index + OC_gamma_shape];
+      c_OC_hidden[i] = ode_out[i, index + OC_gamma_shape];
       index += OC_gamma_shape + 1;
       
-      OD[i] = ode_out[i, index + OD_gamma_shape];
+      c_OD_hidden[i] = ode_out[i, index + OD_gamma_shape];
       index += OD_gamma_shape + 1;
       
       S[i] = N
