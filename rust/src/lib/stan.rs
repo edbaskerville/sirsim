@@ -1,4 +1,6 @@
 use crate::spec::*;
+use crate::errors::*;
+use crate::util::*;
 use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 
@@ -1025,23 +1027,6 @@ fn generated_quantities_code(body: String) -> String {
     format_section("generated quantities", body)
 }
 
-
-#[derive(Debug, Serialize, Deserialize)]
-pub enum Error {
-    InvalidInputPath(String),
-    InvalidInputFile(String),
-    InputReadFailure,
-    InvalidJson(JsonError),
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct JsonError {
-    description: String,
-    category: String,
-    line: usize,
-    column: usize,
-}
-
 impl From<serde_json::error::Error> for Error {
     fn from(e: serde_json::error::Error) -> Self {
         Self::InvalidJson(JsonError {
@@ -1084,33 +1069,6 @@ pub fn run() -> Result<OutputData, Error> {
     Ok(OutputData {
         stan_code
     })
-}
-
-pub fn read_data_from_file(path_str: &str) -> Result<String, Error> {
-    let path = Path::new(path_str).canonicalize().map_err(
-        |_| Error::InvalidInputPath(path_str.into())
-    )?;
-    let mut file = File::open(&path).map_err(
-        |_| Error::InvalidInputFile(path_str.into())
-    )?;
-    let mut data = String::new();
-    file.read_to_string(&mut data).map_err(
-        |_| Error::InputReadFailure
-    )?;
-    Ok(data)
-}
-
-pub fn write_data_to_file(path_str: &str, data: &str) {
-    let mut file = File::create(path_str).unwrap();
-    file.write_all(data.as_bytes()).unwrap();
-}
-
-pub fn read_data_from_stdin() -> Result<String, Error> {
-    let mut data = String::new();
-    std::io::stdin().read_to_string(&mut data).map_err(
-        |_| Error::InputReadFailure
-    )?;
-    Ok(data)
 }
 
 #[cfg(test)]

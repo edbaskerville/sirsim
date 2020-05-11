@@ -6,14 +6,19 @@ use std::time::Instant;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::Read;
-use std::path::{PathBuf};
+use std::path::{PathBuf, Path};
 use std::collections::HashMap;
 use std::f64::INFINITY;
+
+use sirtools::util::*;
+use sirtools::errors::*;
+use std::iter::FromIterator;
 
 #[derive(Serialize, Deserialize)]
 struct Config {
     rng_seed: Option<u32>,
-    output_path: String,
+    output_path: Option<String>,
+    write_to_stdout: Option<bool>,
     
     record_all_events: bool,
     
@@ -50,15 +55,17 @@ struct StateConfig {
     probabilities: Option<Vec<Vec<f64>>>,
 }
 
-fn main() {
-    // Read config from JSON file specified with first command-line argument
+fn main() -> Result<(), Error> {
+    // Read JSON data from file specified in first command-line argument or from stdin
     let args: Vec<String> = std::env::args().collect();
-    let config_path = PathBuf::from(args[1].clone()).canonicalize().unwrap();
-    let mut file = File::open(&config_path).unwrap();
-    let mut json_data = String::new();
-    file.read_to_string(&mut json_data).unwrap();
-    eprintln!("{}", json_data);
+    let json_data = if args.len() > 1 {
+        read_data_from_file(&args[1])?
+    }
+    else {
+        read_data_from_stdin()?
+    };
     
+    // Read config from JSON data
     let config: Config = serde_json::from_str(&json_data).unwrap();
     let (
         states,
@@ -68,13 +75,24 @@ fn main() {
     ) = parse_states(&config);
     let (t_change, beta_t, C_t) = parse_contact_parameters(config.contact_parameters);
     
-    // Set working directory to parent dir of config path
-    std::env::set_current_dir(&config_path.parent().unwrap()).unwrap();
+    // If we were given a config file, use its parent as our working directory
+    if args.len() > 1 {
+        std::env::set_current_dir(&Path::new(&args[1]).parent().unwrap()).unwrap();
+    }
     
-    // Write to DB file specified with second command-line argument
-    let db_path: PathBuf = config.output_path.into();
-    assert!(!db_path.exists());
-    let mut db_connection = rusqlite::Connection::open(db_path).unwrap();
+    // Write to DB file specified in config file
+    // (or use in-memory database if not specified)
+    let mut db_connection = match config.output_path {
+        Some(output_path) => {
+            let db_path: PathBuf = output_path.into();
+            assert!(!db_path.exists());
+            rusqlite::Connection::open(db_path).unwrap()
+        },
+        None => {
+            assert!(!config.record_all_events);
+            rusqlite::Connection::open_in_memory().unwrap()
+        }
+    };
     
     let mut sim = {
         let mut db_transaction = db_connection.transaction().unwrap();
@@ -108,15 +126,27 @@ fn main() {
         println!("t = {}", sim.t);
     }
     eprintln!("elapsed time: {} s", start.elapsed().as_secs_f64());
-//
-//    eprintln!("creating DB indexes...");
-//
-//    db_connection.execute_batch(&unindent("
-//        CREATE INDEX Infections_index ON Infections (t, infected_id, infectious_id);
-//        CREATE INDEX Transitions_index ON Transitions (t, id, start_state, end_state);
-//    ")).unwrap();
     
     eprintln!("...done.");
+    
+    if config.write_to_stdout.unwrap_or(false) {
+        eprintln!("Writing DB to stdout in JSON format...");
+        
+        let db_json_data = serde_json::Map::from_iter(vec![
+            ("Meta", vec!["key", "value"]),
+            ("Counts", vec!["time", "state", "ageclass", "count"]),
+            ("RtSufficientStatistics", vec!["time_discrete", "n_primary", "n_secondary"]),
+        ].iter().map(|(table_name, col_names)| {
+            (
+                String::from(*table_name),
+                db_table_to_json_object(&db_connection, table_name, col_names)
+            )
+        }).collect::<Vec<_>>());
+        
+        println!("{}", serde_json::to_string_pretty(&db_json_data).unwrap());
+    }
+    
+    Ok(())
 }
 
 fn parse_states(config: &Config) -> (Vec<State>, usize, usize, Counts) {
