@@ -116,14 +116,14 @@ fn main() -> Result<(), Error> {
     
     let start = Instant::now();
     let t_final = config.t_final.unwrap_or(INFINITY);
-    println!("t = {}", sim.t);
+    eprintln!("t = {}", sim.t);
     let mut done = false;
     while sim.t < t_final && !done {
         let mut db_transaction = db_connection.transaction().unwrap();
         done = sim.simulate(sim.t + 1.0, &mut db_transaction, config.record_all_events);
         sim.write_counts(&mut db_transaction);
         db_transaction.commit().unwrap();
-        println!("t = {}", sim.t);
+        eprintln!("t = {}", sim.t);
     }
     eprintln!("elapsed time: {} s", start.elapsed().as_secs_f64());
     
