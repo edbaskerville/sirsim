@@ -657,7 +657,7 @@ impl Simulation {
                     self.C_I_over_N.update_C(self.C[self.intervention_index].clone());
                     self.update_contact();
                     
-                    println!("Updated intervention to {} at t = {}", self.intervention_index, self.t);
+                    eprintln!("Updated intervention to {} at t = {}", self.intervention_index, self.t);
                 }
             }
         }
