@@ -1,8 +1,7 @@
-sirsim_ibm_write_config <- function(
-  config_path,
-  
+sirsim_ibm_make_config <- function(
   rng_seed,
   output_path,
+  write_to_stdout,
   record_all_events,
   
   t_final,
@@ -13,7 +12,9 @@ sirsim_ibm_write_config <- function(
   final_states,
   infected_states,
   contact_parameters,
-  initial_counts
+  initial_counts,
+  
+  config_path = NULL
 ) {
   library(jsonlite)
   
@@ -39,6 +40,7 @@ sirsim_ibm_write_config <- function(
   config <- list(
     rng_seed = unbox(rng_seed),
     output_path = unbox(output_path),
+    write_to_stdout = unbox(write_to_stdout),
     record_all_events = unbox(record_all_events),
     t_final = unbox(t_final),
     
@@ -57,15 +59,22 @@ sirsim_ibm_write_config <- function(
     matrix = 'rowmajor',
     digits = NA
   )
-  write(config_json, config_path)
+  
+  if(!is.null(config_path)) {
+    write(config_json, config_path)
+  }
+  
+  config
 }
 
 sirsim_ibm_simulate <- function(
   sirsim_root,
-  config_path,
+  config,
   with_rust_optimizations = TRUE,
   with_rust_backtrace = FALSE
 ) {
+  library(jsonlite)
+  
   sirsim_build(sirsim_root)
   
   exec_path <- normalizePath(
@@ -75,18 +84,30 @@ sirsim_ibm_simulate <- function(
       'sirsim'
     )
   )
-  config_path <- normalizePath(config_path)
   
-  err <- system(sprintf(
-    '%s"%s" "%s"',
-    if(with_rust_backtrace) 'RUST_BACKTRACE=full ' else '',
+  backtrace <- if(with_rust_backtrace) 'RUST_BACKTRACE=full ' else ''
+  config_path <- if(is.list(config)) {
+    ''
+  } else {
+    sprintf('"%s"', normalizePath(config))
+  }
+  
+  input <- if(is.list(config)) {
+    toJSON(
+      config, null = 'null', pretty = TRUE,
+      matrix = 'rowmajor',
+      digits = NA
+    )
+  } else NULL
+  
+  output <- system(sprintf(
+    '%s"%s" %s',
+    backtrace,
     exec_path,
     config_path
-  ))
+  ), intern = TRUE, input = input)
   
-  if(err != 0) {
-    stop('Failed to run simulation.')
-  }
+  output
 }
 
 sirsim_build <- function(
