@@ -71,11 +71,18 @@ sirsim_ibm_simulate <- function(
   sirsim_root,
   config,
   with_rust_optimizations = TRUE,
-  with_rust_backtrace = FALSE
+  with_rust_backtrace = FALSE,
+  cargo_path = NULL,
+  build = TRUE
 ) {
   library(jsonlite)
   
-  sirsim_build(sirsim_root)
+  if(build) {
+    sirsim_build(
+      sirsim_root,
+      cargo_path = cargo_path
+    )
+  }
   
   exec_path <- normalizePath(
     file.path(
@@ -112,14 +119,20 @@ sirsim_ibm_simulate <- function(
 
 sirsim_build <- function(
   sirsim_root,
-  with_rust_optimizations = TRUE
+  with_rust_optimizations = TRUE,
+  cargo_path = NULL
 ) {
   old_wd <- normalizePath(getwd())
   rust_root <- normalizePath(file.path(sirsim_root, 'rust'))
   
+  if(is.null(cargo_path)) {
+    cargo_path <- '~/.cargo/bin/cargo'
+  }
+  
   setwd(rust_root)
   err <- system(sprintf(
-    '~/.cargo/bin/cargo build%s',
+    '%s build%s',
+    cargo_path,
     if(with_rust_optimizations) ' --release' else ''
   ))
   setwd(old_wd)
